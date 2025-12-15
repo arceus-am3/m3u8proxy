@@ -1,0 +1,132 @@
+// Deno Deploy compatible HLS Proxy
+// SAME behavior as Vercel proxy
+
+Deno.serve(async (req: Request) => {
+  if (req.method !== "GET") {
+    return new Response(
+      JSON.stringify({ error: "Method not allowed" }),
+      { status: 405, headers: { "Content-Type": "application/json" } }
+    );
+  }
+
+  const { searchParams } = new URL(req.url);
+  const url = searchParams.get("url");
+  const referer = searchParams.get("referer");
+
+  if (!url) {
+    return new Response(
+      JSON.stringify({ error: "URL parameter is required" }),
+      { status: 400, headers: { "Content-Type": "application/json" } }
+    );
+  }
+
+  try {
+    const decodedUrl = decodeURIComponent(url);
+    const rangeHeader = req.headers.get("range");
+
+    const headers: Record<string, string> = {
+      "User-Agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      "Referer": referer
+        ? decodeURIComponent(referer)
+        : "https://megacloud.tv",
+      "Origin": referer
+        ? decodeURIComponent(referer)
+        : "https://megacloud.tv",
+      "Accept": "*/*",
+    };
+
+    if (rangeHeader) headers["Range"] = rangeHeader;
+
+    const upstream = await fetch(decodedUrl, {
+      headers,
+      redirect: "follow",
+    });
+
+    const resHeaders = new Headers();
+    resHeaders.set("Access-Control-Allow-Origin", "*");
+    resHeaders.set("Access-Control-Allow-Methods", "GET, OPTIONS");
+    resHeaders.set(
+      "Access-Control-Allow-Headers",
+      "Range, Content-Type, Accept, Accept-Encoding"
+    );
+    resHeaders.set(
+      "Access-Control-Expose-Headers",
+      "Content-Length, Content-Range, Accept-Ranges, Cache-Control"
+    );
+
+    const contentType =
+      upstream.headers.get("content-type") ||
+      "application/vnd.apple.mpegurl";
+    resHeaders.set("Content-Type", contentType);
+
+    if (upstream.headers.get("content-length"))
+      resHeaders.set(
+        "Content-Length",
+        upstream.headers.get("content-length")!
+      );
+
+    if (upstream.headers.get("content-range"))
+      resHeaders.set(
+        "Content-Range",
+        upstream.headers.get("content-range")!
+      );
+
+    resHeaders.set(
+      "Accept-Ranges",
+      upstream.headers.get("accept-ranges") || "bytes"
+    );
+
+    if (decodedUrl.endsWith(".ts") || decodedUrl.endsWith(".m4s")) {
+      resHeaders.set(
+        "Cache-Control",
+        "public, max-age=31536000, immutable"
+      );
+    } else if (decodedUrl.endsWith(".m3u8")) {
+      resHeaders.set("Cache-Control", "no-cache");
+    }
+
+    // M3U8 rewrite
+    if (
+      contentType.includes("mpegurl") ||
+      decodedUrl.endsWith(".m3u8")
+    ) {
+      const text = await upstream.text();
+      const basePath =
+        decodedUrl.substring(0, decodedUrl.lastIndexOf("/") + 1);
+
+      const newContent = text
+        .split("\n")
+        .map((line) => {
+          line = line.trim();
+          if (!line || line.startsWith("#")) return line;
+
+          let targetUrl = line.startsWith("http")
+            ? line
+            : basePath + line;
+
+          return `https://YOUR-DENO-PROJECT.deno.dev/?url=${encodeURIComponent(
+            targetUrl
+          )}&referer=${encodeURIComponent(
+            referer || "https://megacloud.tv"
+          )}`;
+        })
+        .join("\n");
+
+      return new Response(newContent, {
+        status: upstream.status,
+        headers: resHeaders,
+      });
+    }
+
+    return new Response(upstream.body, {
+      status: upstream.status,
+      headers: resHeaders,
+    });
+  } catch (e) {
+    return new Response(
+      JSON.stringify({ error: "Proxy failed" }),
+      { status: 500 }
+    );
+  }
+});
