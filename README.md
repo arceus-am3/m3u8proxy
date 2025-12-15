@@ -1,4 +1,4 @@
-# HiAnime API - Vercel Proxy
+# HiAnime API - Vercel Proxy or Deno Deploy
 
 This is a standalone HLS proxy deployed on Vercel to add CORS headers.
 
