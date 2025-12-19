@@ -72,3 +72,10 @@ None required - works out of the box!
 - Handles both playlists and segments
 - Supports Range requests for seeking
 - Max request timeout: 30 seconds
+
+  
+# Disclaration 
+
+This project includes code from:
+- https://github.com/ryanwtf88/vercel-proxy
+Copyright (c) 2025 @ryanwtf88
